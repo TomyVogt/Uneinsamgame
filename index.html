@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UNEINSAM — v15 Final Standalone</title>
+<style>
+  :root { color-scheme: light; }
+  html, body { margin:0; height:100%; background:#ffffff; overflow:hidden; }
+  canvas { display:block; }
+  /* Status bar */
+  #hud{
+    position:fixed; top:0; left:0; right:0; height:44px;
+    display:flex; align-items:center; justify-content:center;
+    padding:8px 14px; font:700 14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background:#ffffff; color:#111; border-bottom:1px solid rgba(0,0,0,0.08);
+    z-index:5; user-select:none; -webkit-user-select:none;
+  }
+  #count{
+    position:absolute; right:12px; top:50%; transform:translateY(-50%);
+    font-weight:600;
+  }
+  #timer{
+    position:absolute; left:50%; transform:translateX(-50%);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Replay modal */
+  #modal {
+    position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.28); z-index: 6;
+  }
+  #modal .card {
+    background: #fff; border-radius: 14px; padding: 18px 16px; width: min(92vw, 440px);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.15);
+    font: 600 16px system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    color: #111;
+  }
+  #modal h2 { margin: 0 0 10px; font: 800 20px system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  #buttons { display: grid; gap: 10px; margin-top: 8px; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; padding: 10px 12px;
+    border-radius: 10px; border: 1px solid rgba(0,0,0,0.08); background: #f6f7f8;
+    cursor: pointer; user-select: none;
+    transition: transform .05s ease;
+  }
+  .btn:active { transform: translateY(1px); }
+</style>
+</head>
+<body>
+  <div id="hud">
+    <div id="timer">01:00</div>
+    <div id="count">Friends: 0 / 8</div>
+  </div>
+  <div id="modal">
+    <div class="card">
+      <h2>Would you like to try again?</h2>
+      <div>Choose a difficulty:</div>
+      <div id="buttons">
+        <div class="btn" data-diff="easy">Play again — Easy (hints every 3s)</div>
+        <div class="btn" data-diff="medium">Play again — Medium (hints every 6s)</div>
+        <div class="btn" data-diff="hard">Play again — Difficult (hints every 9s)</div>
+      </div>
+    </div>
+  </div>
+  <canvas id="game"></canvas>
+<script>
+// ===== DOM
+const hud = document.getElementById('hud');
+const timerEl = document.getElementById('timer');
+const countEl = document.getElementById('count');
+const modal = document.getElementById('modal');
+const cvs = document.getElementById('game');
+const ctx = cvs.getContext('2d');
+document.querySelectorAll('.btn').forEach(btn=>btn.addEventListener('click', (e)=>{
+  restart(e.currentTarget.dataset.diff || 'easy');
+}));
+
+// ===== Global state
+let W,H,layoutDirty;
+let player, pointerDown=false;
+let crowd=[], CROWD_COUNT=92;
+let friends=[], ORDER, GREEN, BLUE;
+let trail=[], TRAIL_MAX=4000;
+let CENTER_FONT, FLOAT_FONT, KERN, wordLayout, placed;
+let letterAnim=null, bursts=[];
+let TIMER_LIMIT_MS, startedAt, gameEnded=false, endedWin=false, remainingAtEndMs;
+let freezeUntil=0, lastFoundAt, lastHintAt, HINT_INTERVAL_MS=3000;
+let timerFloat=null;
+let finalTimeText = "01:00"; // frozen time for float
+let playerStopLevel = 0;      // 0..1: convergence factor when player idles
+let endAt=0;
+
+// ===== Sizing & bounds
+function setCanvasSize(){ W=cvs.width=window.innerWidth; H=cvs.height=window.innerHeight; layoutDirty=true; }
+setCanvasSize(); window.addEventListener('resize', setCanvasSize);
+const HUDH = ()=> (hud ? hud.offsetHeight : 44);
+const BX   = ()=> 0.05 * W;
+const BY   = ()=> 0.05 * H;
+const TOP  = ()=> Math.max(BY(), HUDH());
+function MIN_Y_FOR(size=14){ const h=size*1.8, head=size*0.36; return HUDH() + h + head + 2; }
+
+// ===== Utils
+const rand=(a,b)=>a+Math.random()*(b-a);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const dist=(x1,y1,x2,y2)=>Math.hypot(x2-x1,y2-y1);
+const pick = arr => arr[(Math.random()*arr.length)|0];
+function darker(hex, f=0.65){ const n=parseInt(hex.slice(1)||'999999',16); const r=((n>>16)&255)*f|0, g=((n>>8)&255)*f|0, b=(n&255)*f|0; return `rgb(${r},${g},${b})`; }
+
+// ===== Drawing: person (with optional forceIdle legs)
+function drawPerson(p, col="#555", opts={}){
+  const {size=(p.size||14), rotate=false, slowLegs=false, smile=false, forceIdle=false}=opts;
+  p.size = size;
+  const w=size*0.45, h=size*1.8, hipY=-6, legLen=size*1.05, legT=Math.max(2,size*0.16);
+  const speed=Math.hypot(p.vx||0,p.vy||0);
+  if(speed>0.01) p.dir=Math.atan2(p.vy,p.vx);
+  const rate = slowLegs ? 0.05 : 0.10;
+  if(speed>0.01 && !forceIdle){ p.leg=(p.leg||0)+(speed*rate+0.005); } else { p.leg=p.leg||0; }
+  const ampWalk=Math.min(6,1.8+speed*4.5);
+
+  ctx.save(); ctx.translate(p.x,p.y); if(rotate) ctx.rotate(p.dir||0);
+  // legs
+  ctx.lineWidth=legT; ctx.lineCap='round'; ctx.strokeStyle=darker(col,0.55);
+  if(speed>0.01 && !forceIdle){
+    for(let i=0;i<2;i++){
+      const side=i===0?-1:1, phase=p.leg+(i===0?0:Math.PI);
+      const swing=Math.sin(phase)*ampWalk, lift=Math.max(0,Math.cos(phase))*(ampWalk*0.18);
+      const hx=side*w*0.18, hy=hipY-2, kx=hx+swing*0.25, ky=hy+legLen*0.45-lift*0.6, fx=hx+swing*0.6, fy=hy+legLen-lift;
+      ctx.beginPath(); ctx.moveTo(hx,hy); ctx.lineTo(kx,ky); ctx.lineTo(fx,fy); ctx.stroke();
+    }
+  } else {
+    const t=performance.now()*0.003;
+    for(let i=0;i<2;i++){
+      const side=i===0?-1:1; const sway=Math.sin(t+i*Math.PI)*1.2; const lift=Math.cos(t+i*Math.PI)*0.6;
+      const hx=side*w*0.18, hy=hipY-2;
+      const kx=hx+sway*0.15, ky=hy+legLen*0.45-lift*0.3;
+      const fx=hx+sway*0.3,  fy=hy+legLen-lift*0.5;
+      ctx.beginPath(); ctx.moveTo(hx,hy); ctx.lineTo(kx,ky); ctx.lineTo(fx,fy); ctx.stroke();
+    }
+  }
+  // body + head
+  ctx.fillStyle=col; ctx.fillRect(-w/2,-h,w,h-6);
+  ctx.beginPath(); ctx.arc(0,-h, size*0.36, 0, Math.PI*2); ctx.fillStyle="#f7e4d4"; ctx.fill();
+  if(smile){ ctx.strokeStyle="#111"; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(0,-h+6, 4, 0.15*Math.PI, 0.85*Math.PI); ctx.stroke(); }
+  ctx.restore();
+}
+
+// ===== Natural wave (style #25): short limbs (50%), slow
+function drawWaveNatural(p, color='#111', startTime=0){
+  const size = p.size || 14;
+  const w=size*0.45, h=size*1.8;
+  const shoulderX = p.x + w/2;
+  const shoulderY = p.y - h + size*0.5;
+  const now=performance.now();
+  const t=(now-(startTime||now))/1000;
+  const base=-Math.PI/3, amp=(Math.PI/9.5)*0.5, freq=0.75, wrist=Math.PI/26, jitter=0.004;
+  const osc = Math.sin(t*2*Math.PI*freq);
+  const jit = jitter*(Math.sin(t*1.5+2)*0.6 + Math.sin(t*2.2+4)*0.4);
+  if(!p._waveN) p._waveN = { elbow: base, hand: base };
+  const elbowTarget = base + osc*amp*0.6 + jit;
+  const handTarget  = elbowTarget + osc*amp*0.7 + wrist*Math.sin(t*2*Math.PI*(freq*1.1+0.08)) + jit*0.8;
+  p._waveN.elbow += (elbowTarget - p._waveN.elbow)*0.22;
+  p._waveN.hand  += (handTarget  - p._waveN.hand )*0.22;
+  const upperLen = size*0.95*0.5, foreLen  = size*0.90*0.5;
+  const ex = shoulderX + Math.cos(p._waveN.elbow)*upperLen;
+  const ey = shoulderY + Math.sin(p._waveN.elbow)*upperLen;
+  const hx = ex + Math.cos(p._waveN.hand)*foreLen;
+  const hy = ey + Math.sin(p._waveN.hand)*foreLen;
+  ctx.lineCap='round'; ctx.lineWidth=Math.max(2, size*0.14); ctx.strokeStyle=color;
+  ctx.beginPath(); ctx.moveTo(shoulderX, shoulderY); ctx.lineTo(ex, ey); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(hx, hy); ctx.stroke();
+  ctx.beginPath(); ctx.arc(shoulderX, shoulderY, size*0.11, 0, Math.PI*2); ctx.fillStyle=color; ctx.fill();
+  ctx.beginPath(); ctx.arc(ex, ey, size*0.11, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx, hy, size*0.16, 0, Math.PI*2); ctx.fill();
+}
+
+// ===== Speech bubble with colored bold initial
+function drawSpeech(f, scale=2){
+  const now=performance.now(); if(now>(f.talkUntil||0)) return;
+  const baseText = "Hi, I'm ";
+  const name = f.name || "";
+  const first = name.slice(0,1);
+  const rest  = name.slice(1);
+  const tOpen=Math.min(1,(now-(f.talkStart||0))/200); const ease=1-Math.pow(1-tOpen,3);
+  const isGreen = (f.letter==='U'||f.letter==='N');
+  const firstCol = isGreen ? '#16a34a' : '#2563eb';
+
+  ctx.save();
+  ctx.font=`600 ${14*scale}px system-ui, sans-serif`;
+  const pad=10*scale, textH=26*scale, margin=8, hudH=HUDH();
+  const baseW = ctx.measureText(baseText).width;
+  const restFont = `600 ${14*scale}px system-ui, sans-serif`;
+  const boldFont = `900 ${14*scale}px system-ui, sans-serif`;
+  ctx.font = boldFont; const firstW = ctx.measureText(first).width;
+  ctx.font = restFont; const restW  = ctx.measureText(rest).width;
+  const bw = baseW + firstW + restW + pad*2;
+  const bh = textH + pad*2;
+  let bx = f.x - bw/2, by = f.y - (60*scale);
+  if(by < hudH+margin) by=f.y+24;
+  if(by+bh > H - margin){ by=clamp(f.y - bh/2, hudH+margin, H-bh-margin); bx=f.x+22; if(bx+bw>W-margin) bx=f.x-22-bw; }
+  bx=clamp(bx, margin, W-bw-margin); by=clamp(by, hudH+margin, H-bh-margin);
+
+  ctx.globalAlpha=0.92*ease; ctx.fillStyle='rgba(255,255,255,0.98)'; ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=1.2;
+  const r=12;
+  ctx.beginPath(); ctx.moveTo(bx+r,by);
+  ctx.arcTo(bx+bw,by, bx+bw,by+bh, r);
+  ctx.arcTo(bx+bw,by+bh, bx,by+bh, r);
+  ctx.arcTo(bx,by+bh, bx,by, r);
+  ctx.arcTo(bx,by, bx+bw,by, r); ctx.closePath(); ctx.fill(); ctx.stroke();
+
+  // text
+  ctx.globalAlpha=ease; ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  let tx = bx+pad, ty = by+bh/2 + 4*scale;
+  ctx.font = restFont; ctx.fillStyle='#111'; ctx.fillText(baseText, tx, ty); tx += baseW;
+  ctx.font = boldFont; ctx.fillStyle=firstCol; ctx.fillText(first, tx, ty); tx += firstW;
+  ctx.font = restFont; ctx.fillStyle='#111'; ctx.fillText(rest, tx, ty);
+  ctx.globalAlpha=1;
+  ctx.restore();
+}
+
+// ===== Fireworks
+const FW_COLORS=['#ff3b30','#ff9f0a','#ffcc00','#34c759','#0fb','#007aff','#5856d6','#bf5af2'];
+function spawnBurst(x,y,big=false){
+  const parts=[]; const count=big?80:40;
+  for(let i=0;i<count;i++){ const a=(i/count)*Math.PI*2+Math.random()*0.2; const sp=big?rand(2.2,4.2):rand(1.2,2.2); const life=big?rand(70,110):rand(40,70);
+    const col=FW_COLORS[(Math.random()*FW_COLORS.length)|0]; parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life,age:0,col}); }
+  bursts.push(parts);
+}
+function updateBursts(){ bursts=bursts.filter(parts=>{ parts.forEach(p=>{ p.x+=p.vx; p.y+=p.vy; p.vx*=0.985; p.vy*=0.985; p.vy+=0.02; p.life--; }); return parts.some(p=>p.life>0); }); }
+function drawBursts(){ ctx.save(); ctx.globalCompositeOperation='lighter'; bursts.forEach(parts=>{ parts.forEach(p=>{ if(p.life<=0) return; const a=Math.max(0,p.life/110);
+  ctx.strokeStyle=p.col; ctx.globalAlpha=a; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x-p.vx*2,p.y-p.vy*2); ctx.stroke(); }); }); ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over'; ctx.restore(); }
+
+// ===== Word layout & drawing
+function computeWordLayout(){ ctx.save(); ctx.font=CENTER_FONT;
+  const widths=ORDER.map(ch=>ctx.measureText(ch).width);
+  const totalW=widths.reduce((a,b)=>a+b,0)+KERN*(ORDER.length-1);
+  const startX=W/2 - totalW/2; const yCenter=(TOP()+H-BY())/2;
+  const slots=[]; let x=startX; for(let i=0;i<ORDER.length;i++){ const isGreen=i<2; slots.push({x:x+widths[i]/2,y:yCenter,char:ORDER[i],color:isGreen?GREEN:BLUE,w:widths[i]}); x+=widths[i]+KERN; }
+  ctx.restore(); return slots;
+}
+function slotAt(i){ if(layoutDirty || !wordLayout){ wordLayout=computeWordLayout(); layoutDirty=false; } return wordLayout[i]; }
+function drawCenterWord(){ if(layoutDirty || !wordLayout){ wordLayout=computeWordLayout(); layoutDirty=false; }
+  ctx.save(); ctx.font=CENTER_FONT; ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(let i=0;i<ORDER.length;i++){ if(!placed[i]) continue; const s=wordLayout[i]; ctx.fillStyle=s.color; ctx.fillText(s.char,s.x,s.y); }
+  ctx.restore();
+}
+
+// ===== Flying letter animation
+function startLetterAnim(index, char, fromX, fromY, color){
+  const tslot=slotAt(index);
+  letterAnim={ index, char, color, x:fromX, y:fromY, sx:fromX, sy:fromY, ex:tslot.x, ey:tslot.y, start:performance.now(), dur:900, scale:1, visible:true };
+}
+function updateLetterAnim(){ if(!letterAnim || !letterAnim.visible) return;
+  const t=(performance.now()-letterAnim.start)/letterAnim.dur; const k=Math.min(1,t), e=1-Math.pow(1-k,3);
+  letterAnim.x = letterAnim.sx + (letterAnim.ex-letterAnim.sx)*e;
+  letterAnim.y = letterAnim.sy + (letterAnim.ey-letterAnim.sy)*e;
+  letterAnim.scale = 1 + e*2.0;
+  if(k>=1){ placed[letterAnim.index]=true; const s=slotAt(letterAnim.index); if(!gameEnded || (timerFloat && timerFloat.active)){ spawnBurst(s.x,s.y,false); } letterAnim.visible=false; }
+}
+function drawLetterAnim(){ if(!letterAnim || !letterAnim.visible) return;
+  ctx.save(); ctx.translate(letterAnim.x,letterAnim.y); ctx.scale(letterAnim.scale,letterAnim.scale);
+  ctx.fillStyle=letterAnim.color||'#111'; ctx.font=FLOAT_FONT; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(letterAnim.char,0,0); ctx.restore();
+}
+
+// ===== Timer + float (single display)
+function fmtCountdown(){ const now=performance.now(); let left=Math.max(0,TIMER_LIMIT_MS-(now-startedAt)); if(gameEnded) left=remainingAtEndMs;
+  const s=Math.floor(left/1000); const mm=String(Math.floor(s/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); return {text:mm+':'+ss,leftMs:left, sRemaining:s}; }
+function allFriendsFound(){ return placed.every(Boolean); }
+
+function startTimerFloat(){
+  const f=fmtCountdown();
+  remainingAtEndMs = f.leftMs; finalTimeText = f.text;
+  timerFloat={ active:true, start:performance.now(), dur:2000, text:finalTimeText,
+    from:{x:W/2,y:HUDH()/2 + 2}, to:(()=>{ const s=slotAt(3)||{x:W/2,y:(TOP()+H-BY())/2}; return {x:W/2,y:s.y + 56}; })()
+  };
+  timerEl.style.visibility = 'hidden';
+}
+function drawTimerFloat(){
+  if(!timerFloat || !timerFloat.active) return;
+  const t=(performance.now()-timerFloat.start)/timerFloat.dur;
+  const k=Math.min(1,t); const e=1-Math.pow(1-k,3);
+  const x = timerFloat.from.x + (timerFloat.to.x-timerFloat.from.x)*e;
+  const y = timerFloat.from.y + (timerFloat.to.y-timerFloat.from.y)*e;
+  const scale = 1 + 0.35*e; // enlarge a bit
+  ctx.save();
+  ctx.translate(x,y); ctx.scale(scale,scale);
+  ctx.font = '900 28px system-ui, sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='#111';
+  ctx.fillText(timerFloat.text, 0, 0);
+  ctx.restore();
+  if(k>=1 && !endedWin){ endedWin=true; endAt = performance.now(); }
+}
+
+// ===== Stop & Replay
+function stopGame(win){
+  if(gameEnded) return;
+  gameEnded=true; freezeUntil=Infinity;
+  if(win){ startTimerFloat(); } else { const f=fmtCountdown(); remainingAtEndMs=f.leftMs; finalTimeText=f.text; timerEl.textContent = f.text; }
+  setTimeout(()=>{ modal.style.display='flex'; }, 10000);
+}
+function restart(difficulty='easy'){
+  HINT_INTERVAL_MS = (difficulty==='easy')?3000:(difficulty==='medium')?6000:9000;
+  modal.style.display='none'; timerEl.style.visibility='visible';
+  ORDER="UNEINSAM".split(""); GREEN='#16a34a'; BLUE='#2563eb';
+  CENTER_FONT='900 64px system-ui, sans-serif'; FLOAT_FONT='900 32px system-ui, sans-serif'; KERN=-4;
+  placed=new Array(8).fill(false); wordLayout=null; letterAnim=null; bursts=[];
+  TIMER_LIMIT_MS=60000; startedAt=performance.now(); gameEnded=false; endedWin=false; remainingAtEndMs=TIMER_LIMIT_MS;
+  finalTimeText='01:00'; timerFloat=null; endAt=0;
+  freezeUntil=0; lastFoundAt=performance.now(); lastHintAt=performance.now();
+  playerStopLevel=0;
+  player = { x: W/2, y: Math.max(MIN_Y_FOR(14), H*0.5), tx:W/2, ty:Math.max(MIN_Y_FOR(14), H*0.5), vx:0, vy:0, speed:2, leg:0, dir:0, size:14 };
+  pointerDown=false; trail=[];
+  CROWD_COUNT=92; crowd=(function(){ const pts=generateWithMinSpacing(CROWD_COUNT,24);
+    return pts.map(p=>({x:p.x,y:p.y,vx:rand(-0.25,0.25),vy:rand(-0.25,0.25),color:'#9ca3af',leg:rand(0,Math.PI*2),dir:0,size:14}));
+  })();
+  const friendPts=spawnFriendsSpaced(8, player);
+  friends = friendPts.map(p=>({ x:p.x, y:p.y, vx:0, vy:0, leg:rand(0,Math.PI*2), dir:0, joined:false, baseColor:'#9ca3af', color:'#9ca3af',
+    name:'', talkStart:0, talkUntil:0, joinRank:null, waveStart:0, waveUntil:0, hintStart:0, hintUntil:0, hintCount:0, _hintPrevColor:null, size:14, discoveredAt:0 }));
+  countEl.textContent='Friends: 0 / 8'; timerEl.textContent='01:00';
+}
+
+// ===== Spawning helpers
+function generateWithMinSpacing(count, minDist){
+  const pts=[]; const maxTries=count*1500; let tries=0;
+  while(pts.length<count && tries<maxTries){
+    const x=rand(BX(), W-BX()); const y=rand(MIN_Y_FOR(14), H-BY());
+    let ok=true; for(let i=0;i<pts.length;i++){ if(dist(x,y,pts[i].x,pts[i].y) < minDist){ ok=false; break; } }
+    if(ok) pts.push({x,y}); tries++;
+  }
+  while(pts.length<count){ pts.push({x:rand(BX(),W-BX()), y:rand(MIN_Y_FOR(14),H-BY())}); }
+  return pts;
+}
+// Friends spaced >=4 heights; nearest to player at start >=7 heights
+function spawnFriendsSpaced(n, playerRef){
+  const FIG_SIZE=14, FIG_HEIGHT=FIG_SIZE*2, FRIEND_MIN_DIST=4*FIG_HEIGHT, FIRST_MIN_DIST=7*FIG_HEIGHT;
+  const arr=[]; const maxTries=n*3000; let tries=0;
+  while(arr.length<n && tries<maxTries){
+    const x=rand(BX(), W-BX()); const y=rand(MIN_Y_FOR(14), H-BY());
+    if(dist(x,y,playerRef.x,playerRef.y) < FIRST_MIN_DIST){ tries++; continue; }
+    let ok=true; for(const f of arr){ if(dist(x,y,f.x,f.y) < FRIEND_MIN_DIST){ ok=false; break; } }
+    if(ok) arr.push({x,y}); tries++;
+  }
+  while(arr.length<n){
+    const x=rand(BX(), W-BX()); const y=rand(MIN_Y_FOR(14), H-BY());
+    if(dist(x,y,playerRef.x,playerRef.y) >= FIRST_MIN_DIST){ arr.push({x,y}); }
+  }
+  return arr;
+}
+
+// ===== Input
+cvs.addEventListener('pointerdown', e=>{ if(gameEnded) return; pointerDown=true; player.tx=e.clientX; player.ty=Math.max(e.clientY, MIN_Y_FOR(player.size)); });
+cvs.addEventListener('pointermove', e=>{ if(gameEnded) return; if(pointerDown){ player.tx=e.clientX; player.ty=Math.max(e.clientY, MIN_Y_FOR(player.size)); } });
+cvs.addEventListener('pointerup', ()=>{ pointerDown=false; });
+cvs.addEventListener('click', e=>{ player.tx=e.clientX; player.ty=Math.max(e.clientY, MIN_Y_FOR(player.size)); });
+
+// ===== Leg overlap suppression
+function markOverlapSuppression(){
+  const chain=[player, ...friends.filter(f=>f.joined).sort((a,b)=>a.joinRank-b.joinRank)];
+  chain.forEach(n=>n._forceIdle=false);
+  const R = 10;
+  let leader = chain[0];
+  for(let i=1;i<chain.length;i++){
+    const cur = chain[i];
+    if(dist(leader.x,leader.y,cur.x,cur.y) < R){
+      cur._forceIdle=true;
+    } else {
+      leader = cur;
+    }
+  }
+}
+
+// ===== Update
+function update(){
+  const now=performance.now();
+  const tt = fmtCountdown();
+  if(!(timerFloat && timerFloat.active) && !gameEnded) timerEl.textContent = tt.text;
+  if(!gameEnded && tt.leftMs<=0 && !allFriendsFound()) stopGame(false);
+
+  if(freezeUntil!==Infinity && freezeUntil && now>=freezeUntil) freezeUntil=0;
+  const frozen = now < freezeUntil;
+
+  // Smooth stop detection for convergence (0..1)
+  const ps = Math.hypot(player.vx||0, player.vy||0);
+  const targetStop = (ps<0.05)?1:0;
+  const rate = targetStop?0.02:0.08;
+  playerStopLevel += (targetStop - playerStopLevel)*rate;
+
+  // Hints by difficulty
+  const needHint = !gameEnded && (now - lastFoundAt >= HINT_INTERVAL_MS) && (now - lastHintAt >= HINT_INTERVAL_MS);
+  if(needHint){
+    const target = nearestUndiscoveredToPlayer();
+    if(target){
+      const idx=friends.filter(f=>f.joined).length;
+      const hintColor = (idx<2)?GREEN:BLUE;
+      target.hintCount = (target.hintCount||0)+1;
+      const dur = 1000 + (target.hintCount-1)*1000;
+      target.hintStart=now; target.hintUntil=now+dur;
+      if(target._hintPrevColor==null) target._hintPrevColor=target.color;
+      target.color=hintColor; lastHintAt=now;
+      setTimeout(()=>{ if(!target.joined && target._hintPrevColor!=null){ target.color=target._hintPrevColor; target._hintPrevColor=null; } }, dur);
+    }
+  }
+
+  // Player movement
+  if(!frozen){
+    let dx=player.tx-player.x, dy=player.ty-player.y, d=Math.hypot(dx,dy);
+    if(d>0.5){ dx/=d; dy/=d; player.vx=dx*player.speed; player.vy=dy*player.speed; player.x+=player.vx; player.y+=player.vy; }
+    else { player.vx*=0.9; player.vy*=0.9; }
+    const minY = MIN_Y_FOR(player.size);
+    player.x=clamp(player.x, BX(), W-BX());
+    player.y=clamp(player.y, minY, H-BY());
+    player.ty=Math.max(player.ty, minY);
+  }
+  trail.push({x:player.x,y:player.y}); if(trail.length>TRAIL_MAX) trail.shift();
+
+  // Fireworks loop (after timer float lands)
+  if(endedWin && Math.random()<0.02){ const s=slotAt((Math.random()*ORDER.length)|0); spawnBurst(s.x,s.y,true); }
+
+  // Crowd drift
+  if(!frozen){
+    for(const p of crowd){
+      p.vx += rand(-0.01,0.01); p.vy += rand(-0.01,0.01);
+      const cap=0.5, v=Math.hypot(p.vx,p.vy); if(v>cap){ p.vx=(p.vx/v)*cap; p.vy=(p.vy/v)*cap; }
+      p.x += p.vx; p.y += p.vy;
+      const minY = MIN_Y_FOR(p.size);
+      if(p.x<BX()){p.x=BX();p.vx=Math.abs(p.vx);} if(p.x>W-BX()){p.x=W-BX();p.vx=-Math.abs(p.vx);}
+      if(p.y<minY){p.y=minY;p.vy=Math.abs(p.vy);} if(p.y>H-BY()){p.y=H-BY();p.vy=-Math.abs(p.vy);}
+    }
+  }
+
+  // Discovery & join
+  for(const f of friends){
+    if(!gameEnded && !f.joined && dist(f.x,f.y,player.x,player.y)<38){
+      const index=friends.filter(ff=>ff.joined).length;
+      if(index<ORDER.length){
+        f.joined=true; f.joinRank=index;
+        const letter=ORDER[index]; f.letter=letter; const letterColor=index<2?GREEN:BLUE;
+        f.name = pick(({'U':['Uli','Uma','Udo'],'N':['Nina','Noah','Noel'],'E':['Eva','Elsa','Erik'],'I':['Iris','Ivan','Ines'],'S':['Sam','Sara','Sven'],'A':['Anna','Amir','Alex'],'M':['Max','Mia','Mona']})[letter]||[letter]);
+        // Wave + speak + freeze
+        const now=performance.now();
+        f.waveStart=now; f.waveUntil=now+2000; f.talkStart=now; f.talkUntil=now+1500; freezeUntil=Math.max(freezeUntil, now+2000);
+        startLetterAnim(index, letter, f.x, f.y-28, letterColor);
+        setTimeout(()=>{ f.color=letterColor; countEl.textContent=`Friends: ${friends.filter(ff=>ff.joined).length} / 8`; }, 900);
+        lastFoundAt=now; lastHintAt=now;
+        // Instant win check on 8th join
+        const joinedCount = friends.filter(ff=>ff.joined).length;
+        if(joinedCount === ORDER.length){ stopGame(true); }
+      }
+    }
+  }
+
+  // Follow chain spacing + converge on stop
+  const FIG_SIZE=14, FIG_HEIGHT=FIG_SIZE*2, BASE_DIST=2*FIG_HEIGHT;
+  const chain=[player, ...friends.filter(f=>f.joined).sort((a,b)=>a.joinRank-b.joinRank)];
+  for(let i=1;i<chain.length;i++){
+    const pred=chain[i-1], fol=chain[i];
+    const desired=BASE_DIST*(1-playerStopLevel); // 2 heights while moving, 0 when stopped
+    const dx=pred.x-fol.x, dy=pred.y-fol.y, d=Math.hypot(dx,dy)||0.0001;
+    const tx=pred.x-(dx/d)*desired, ty=pred.y-(dy/d)*desired;
+    fol.x += (tx - fol.x)*0.15; fol.y += (ty - fol.y)*0.15; fol.vx=(tx-fol.x); fol.vy=(ty-fol.y);
+    const minY = MIN_Y_FOR(fol.size);
+    fol.x=clamp(fol.x, BX(), W-BX()); fol.y=clamp(fol.y, minY, H-BY());
+  }
+
+  if(letterAnim) updateLetterAnim();
+  if(bursts.length) updateBursts();
+}
+
+// Find nearest undiscovered friend (for hinting)
+function nearestUndiscoveredToPlayer(){
+  const pool=friends.filter(f=>!f.joined); if(pool.length===0) return null;
+  let best=pool[0], bd=dist(best.x,best.y,player.x,player.y);
+  for(let i=1;i<pool.length;i++){ const f=pool[i]; const d=dist(f.x,f.y,player.x,player.y); if(d<bd){ best=f; bd=d; } }
+  return best;
+}
+
+// ===== Draw
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // Calculate overlap suppression
+  markOverlapSuppression();
+
+  // Crowd
+  for(const p of crowd) drawPerson(p, p.color, {rotate:false});
+
+  // Friends (wave during discovery or hint). Smile during discovery & hint.
+  const now=performance.now();
+  for(const f of friends){
+    const discovery=(f.waveUntil||0) > now;
+    const hint=(f.hintUntil||0) > now;
+    if(discovery || hint){ drawWaveNatural(f, '#111', (discovery?f.waveStart:f.hintStart)||now); }
+    drawPerson(f, f.color, {rotate:false, slowLegs:true, smile:(discovery||hint), forceIdle: !!f._forceIdle});
+  }
+
+  // Player always last -> on top
+  drawPerson(player, '#e0112b', {rotate:false, forceIdle: !!player._forceIdle});
+
+  // Center word + flying letters + fireworks
+  drawCenterWord();
+  drawLetterAnim();
+  drawBursts();
+
+  // Speech
+  for(const f of friends) if((f.talkUntil||0)>now) drawSpeech(f, 2);
+
+  // Single floating timer (pre + post fireworks)
+  if(timerFloat && timerFloat.active) drawTimerFloat();
+}
+
+// ===== Init
+function init(){
+  ORDER="UNEINSAM".split(""); GREEN='#16a34a'; BLUE='#2563eb';
+  CENTER_FONT='900 64px system-ui, sans-serif'; FLOAT_FONT='900 32px system-ui, sans-serif'; KERN=-4;
+  placed=new Array(8).fill(false); wordLayout=null; letterAnim=null; bursts=[];
+  TIMER_LIMIT_MS=60000; startedAt=performance.now(); gameEnded=false; endedWin=false; remainingAtEndMs=TIMER_LIMIT_MS;
+  timerFloat=null; finalTimeText='01:00';
+  freezeUntil=0; lastFoundAt=performance.now(); lastHintAt=performance.now();
+  playerStopLevel=0;
+  // Player
+  player = { x: W/2, y: Math.max(MIN_Y_FOR(14), H*0.5), tx:W/2, ty:Math.max(MIN_Y_FOR(14), H*0.5), vx:0, vy:0, speed:2, leg:0, dir:0, size:14 };
+  // Trail
+  trail=[];
+  // Crowd
+  const pts=generateWithMinSpacing(CROWD_COUNT,24);
+  crowd = pts.map(p=>({x:p.x,y:p.y,vx:rand(-0.25,0.25),vy:rand(-0.25,0.25),color:'#9ca3af',leg:rand(0,Math.PI*2),dir:0,size:14}));
+  // Friends
+  const friendPts=spawnFriendsSpaced(8, player);
+  friends = friendPts.map(p=>({ x:p.x, y:p.y, vx:0, vy:0, leg:rand(0,Math.PI*2), dir:0, joined:false, baseColor:'#9ca3af', color:'#9ca3af',
+    name:'', talkStart:0, talkUntil:0, joinRank:null, waveStart:0, waveUntil:0, hintStart:0, hintUntil:0, hintCount:0, _hintPrevColor:null, size:14, discoveredAt:0 }));
+  // HUD
+  countEl.textContent='Friends: 0 / 8';
+  timerEl.textContent='01:00';
+  // Start timer
+  startedAt=performance.now();
+}
+init();
+
+// ===== Input (again to ensure bound after init)
+cvs.addEventListener('pointerdown', e=>{ if(gameEnded) return; pointerDown=true; player.tx=e.clientX; player.ty=Math.max(e.clientY, MIN_Y_FOR(player.size)); });
+cvs.addEventListener('pointermove', e=>{ if(gameEnded) return; if(pointerDown){ player.tx=e.clientX; player.ty=Math.max(e.clientY, MIN_Y_FOR(player.size)); } });
+cvs.addEventListener('pointerup', ()=>{ pointerDown=false; });
+cvs.addEventListener('click', e=>{ player.tx=e.clientX; player.ty=Math.max(e.clientY, MIN_Y_FOR(player.size)); });
+
+// ===== Loop
+(function loop(){ update(); draw(); requestAnimationFrame(loop); })();
+</script>
+
+<!-- v13: clean timer control — no float; freeze on 8th friend; unfreeze on restart -->
+<style>
+/* Ensure no visual float/animation on timer text */
+#timer, .timer, #countdown, .countdown { animation: none !important; transition: none !important; transform: none !important; }
+</style>
+<script>
+(function(){
+  // 1) Nuke float behavior completely
+  window.startTimerFloat = function(){
+    // Freeze the CURRENT displayed HUD timer value; do not recompute anything here
+    try {
+      if (typeof timerEl !== 'undefined' && timerEl) {
+        const current = timerEl.textContent;
+        // Lock textContent to the current value
+        Object.defineProperty(timerEl, 'textContent', {
+          get: function(){ return current; },
+          set: function(_v){ /* ignore future writes */ },
+          configurable: true
+        });
+        timerEl.style.visibility = 'visible';
+        window.__timerFrozen = true;
+      }
+    } catch(_) {}
+  };
+  window.drawTimerFloat = function(){};
+
+  // 2) Freeze ONLY the timer display when 8th friend is placed
+  function freezeTimerDisplay(){
+    if (window.__timerFrozen) return;
+    try {
+      const el = window.timerEl;
+      if (!el) return;
+      const frozen = el.textContent; // capture current shown value
+      // Lock textContent on this element so future writes are ignored
+      Object.defineProperty(el, 'textContent', {
+        get: function(){ return frozen; },
+        set: function(_v){ /* ignore writes to keep display frozen */ },
+        configurable: true
+      });
+      window.__timerFrozen = true;
+    } catch(e){}
+  }
+
+  // 3) Detect full word completion (8 letters) -> freeze display
+  const guard = setInterval(()=>{
+    try {
+      const ok = Array.isArray(window.placed) && window.placed.length >= 8 && window.placed.every(Boolean);
+      if (ok || window.endedWin === true) {
+        freezeTimerDisplay();
+        clearInterval(guard);
+      }
+    } catch(e){ /* ignore */ }
+  }, 120);
+  window.addEventListener('beforeunload', ()=>clearInterval(guard));
+
+  // 4) On any difficulty selection (restart), unfreeze display so timer runs again from 01:00
+  const oldRestart = window.restart;
+  if (typeof oldRestart === 'function') {
+    window.restart = function(difficulty){
+      try {
+        const el = window.timerEl;
+        if (el) {
+          // Remove our accessor and restore normal textContent behavior
+          try { delete el.textContent; } catch(_) {}
+          // Ensure the HUD shows the initial value then let game logic take over
+          el.textContent = '01:00';
+          el.style.visibility = 'visible';
+        }
+        window.__timerFrozen = false;
+      } catch(e){}
+      return oldRestart(difficulty);
+    };
+  }
+})();
+</script>
+
+
+<!-- v15: pause-only timer on win + keep fireworks; reset on difficulty -->
+<script>
+(function(){
+  // Helper: lock the HUD timer's displayed value without touching game state
+  function lockTimerDisplayToCurrent(){
+    try {
+      if (typeof timerEl !== 'undefined' && timerEl) {
+        const current = timerEl.textContent;
+        Object.defineProperty(timerEl, 'textContent', {
+          get: function(){ return current; },
+          set: function(_v){ /* ignore writes while paused */ },
+          configurable: true
+        });
+        timerEl.style.visibility = 'visible';
+        window.__timerFrozen = true;
+      }
+    } catch(e){}
+  }
+
+  // Ensure fireworks still trigger at win even though we removed float-down
+  function ensureFireworksFlags(){
+    try {
+      window.endedWin = true;
+      window.endAt = performance.now();
+    } catch(e){}
+  }
+
+  // Replace startTimerFloat to: (1) set fireworks flags, (2) pause only timer display
+  const originalStartTimerFloat = window.startTimerFloat;
+  window.startTimerFloat = function(){
+    try {
+      ensureFireworksFlags();
+      lockTimerDisplayToCurrent();
+      } catch(_) {}
+  };
+
+  // Independent guard: if full word is formed, apply same behavior in case startTimerFloat isn't called
+  const guard = setInterval(()=>{
+    try {
+      if (Array.isArray(window.placed) && window.placed.length >= 8 && window.placed.every(Boolean)) {
+        ensureFireworksFlags();
+        lockTimerDisplayToCurrent();
+        clearInterval(guard);
+      }
+    } catch(e){}
+  }, 120);
+  window.addEventListener('beforeunload', ()=>clearInterval(guard));
+
+  // On any difficulty selection, remove the lock and let the game's restart reset the timer
+  const oldRestart = window.restart;
+  if (typeof oldRestart === 'function') {
+    window.restart = function(difficulty){
+      try {
+        if (typeof timerEl !== 'undefined' && timerEl) {
+          // Remove our textContent accessor so updates flow again
+          try { delete timerEl.textContent; } catch(_){}
+          timerEl.style.visibility = 'visible';
+        }
+        window.__timerFrozen = false;
+      } catch(e){}
+      return oldRestart(difficulty);
+    };
+  }
+})();
+</script>
+
+
+
+
+
+
+<!-- v22: 6s sequence of 15–20 big blue/green fireworks, slower explosions -->
+<script>
+(function(){
+  function triggerVictoryFireworks(){
+    if (typeof spawnBurst !== 'function') return;
+    const center = { 
+      x: (typeof W!=='undefined'?W:window.innerWidth)/2, 
+      y: (typeof TOP==='function'&&typeof BY==='function') ? (TOP()+((typeof H!=='undefined'?H:window.innerHeight)-BY()))/2 
+                                                          : ((typeof H!=='undefined'?H:window.innerHeight)/2) 
+    };
+    const FW_BLUE = '#2563eb';
+    const FW_GREEN = '#16a34a';
+    const oldColors = (typeof FW_COLORS!=='undefined') ? FW_COLORS.slice() : null;
+    window.FW_COLORS = [FW_BLUE, FW_GREEN];
+
+    const origSpawn = spawnBurst;
+    window.spawnBurst = function(x,y,big){
+      if (origSpawn) {
+        origSpawn(x,y,true); // force big bursts for larger size
+        try {
+          if (window.bursts && Array.isArray(window.bursts)) {
+            for (let j=window.bursts.length-60;j<window.bursts.length;j++){
+              if (window.bursts[j]) {
+                window.bursts[j].vx *= 0.6;
+                window.bursts[j].vy *= 0.6;
+              }
+            }
+          }
+        } catch(e){}
+      }
+    };
+
+    const bursts = 15 + Math.floor(Math.random()*6); // 15–20
+    const totalDuration = 6000;
+    for (let i=0; i<bursts; i++){
+      const delay = Math.random() * totalDuration;
+      setTimeout(()=>{
+        try {
+          const R = Math.min((typeof W!=='undefined'?W:window.innerWidth),
+                             (typeof H!=='undefined'?H:window.innerHeight)) * (0.06 + Math.random()*0.06);
+          const a = Math.random() * Math.PI * 2;
+          const x = center.x + Math.cos(a)*R;
+          const y = center.y + Math.sin(a)*R;
+          spawnBurst(x, y, true);
+        } catch(e){}
+      }, delay);
+    }
+
+    setTimeout(()=>{ 
+      if (oldColors) window.FW_COLORS = oldColors; 
+      window.spawnBurst = origSpawn;
+    }, totalDuration+500);
+  }
+  window.triggerVictoryFireworks = triggerVictoryFireworks;
+
+  const hookWin = () => {
+    try {
+      if (!window.__victoryHooked) {
+        const oldStart = window.startTimerFloat;
+        window.startTimerFloat = function(){
+          try { if (typeof oldStart === 'function') oldStart(); } catch(_){}
+          try { triggerVictoryFireworks(); } catch(e){}
+        };
+        const id = setInterval(()=>{
+          try {
+            if (Array.isArray(window.placed) && window.placed.length >= 8 && window.placed.every(Boolean)) {
+              triggerVictoryFireworks();
+              clearInterval(id);
+            }
+          } catch(e){}
+        }, 150);
+        window.addEventListener('beforeunload', ()=>clearInterval(id));
+        window.__victoryHooked = true;
+      }
+    } catch(e){}
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', hookWin);
+  } else {
+    hookWin();
+  }
+})();
+</script>
+
+</body>
+</html>
