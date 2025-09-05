@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -49,16 +49,16 @@
 <body>
   <div id="hud">
     <div id="timer">01:00</div>
-    <div id="count">Friends: 0 / 8</div>
+    <div id="count">Freunde: 0 / 8</div>
   </div>
   <div id="modal">
     <div class="card">
-      <h2>Would you like to try again?</h2>
-      <div>Choose a difficulty:</div>
+      <h2>Möchtest du es nochmal versuchen?</h2>
+      <div>Wähle einen Schwierigkeitsgrad:</div>
       <div id="buttons">
-        <div class="btn" data-diff="easy">Play again — Easy (hints every 3s)</div>
-        <div class="btn" data-diff="medium">Play again — Medium (hints every 6s)</div>
-        <div class="btn" data-diff="hard">Play again — Difficult (hints every 9s)</div>
+        <div class="btn" data-diff="easy">Nochmal spielen — Leicht (Hinweise alle 3 Sekunden)</div>
+        <div class="btn" data-diff="medium">Nochmal spielen — Mittel (Hinweise alle 6 Sekunden)</div>
+        <div class="btn" data-diff="hard">Nochmal spielen — Schwer (Hinweise alle 9 Sekunden)</div>
       </div>
     </div>
   </div>
@@ -74,6 +74,208 @@ const ctx = cvs.getContext('2d');
 document.querySelectorAll('.btn').forEach(btn=>btn.addEventListener('click', (e)=>{
   restart(e.currentTarget.dataset.diff || 'easy');
 }));
+
+// ===== International friend profiles
+const SWISS_PROFILES = [
+  { lang: 'de', flag: '🇨🇭', greeting: 'Hallo, ich bin ', names: {U:["Urs","Ueli","Ulla"],N:["Nina","Noel","Noah"],E:["Eva","Erik","Elena"],I:["Ines","Ivan","Iris"],S:["Stefan","Sara","Sven"],A:["Anna","Andreas","Amira"],M:["Marco","Mia","Matteo"]} },
+  { lang: 'fr', flag: '🇨🇭', greeting: 'Bonjour, je suis ', names: {U:["Urs","Ueli","Ulla"],N:["Nina","Noel","Noah"],E:["Eva","Erik","Elena"],I:["Ines","Ivan","Iris"],S:["Stefan","Sara","Sven"],A:["Anna","Andreas","Amira"],M:["Marco","Mia","Matteo"]} },
+  { lang: 'it', flag: '🇨🇭', greeting: 'Ciao, sono ', names: {U:["Urs","Ueli","Ulla"],N:["Nina","Noel","Noah"],E:["Eva","Erik","Elena"],I:["Ines","Ivan","Iris"],S:["Stefan","Sara","Sven"],A:["Anna","Andreas","Amira"],M:["Marco","Mia","Matteo"]} }
+];
+
+const INTERNATIONAL_PROFILES = [
+  { lang: 'es', flag: '🇦🇷', greeting: 'Hola, soy ' },
+  { lang: 'en', flag: '🇦🇺', greeting: "G’day, I'm " },
+  { lang: 'bn', flag: '🇧🇩', greeting: 'হ্যালো, আমি ' },
+  { lang: 'pt', flag: '🇧🇷', greeting: 'Oi, eu sou ', names: {U:["Ulisses"],N:["Nina","Neto"],E:["Enzo","Elisa"],I:["Igor","Isis"],S:["Silvio","Sofia"],A:["Ana","Andre","Aline"],M:["Mateus","Maria","Marcos"]} },
+  { lang: 'zh', flag: '🇨🇳', greeting: '你好，我是 ', names: {U:["Ulan","Unan"],N:["Ning","Nan"],E:["Enlai","Enzo"],I:["Imao","Imin"],S:["Song","Shan","Su"],A:["An","Ai","Amei"],M:["Mei","Min","Ming"]} },
+  { lang: 'fr', flag: '🇨🇩', greeting: 'Bonjour, je suis ' },
+  { lang: 'en', flag: '🇨🇦', greeting: "Hello, I'm " },
+  { lang: 'ar', flag: '🇪🇬', greeting: 'مرحباً، أنا ', names: {U:["Umar"],N:["Nadia","Nabil"],E:["Essam","Eman"],I:["Ibrahim"],S:["Samir","Salma"],A:["Amir","Amal"],M:["Mostafa","Mona"]} },
+  { lang: 'am', flag: '🇪🇹', greeting: 'Selam, ene ' },
+  { lang: 'fi', flag: '🇫🇮', greeting: 'Hei, olen ' },
+  { lang: 'fr', flag: '🇫🇷', greeting: 'Bonjour, je suis ', names: {U:["Ulysse"],N:["Nina","Noe","Nora"],E:["Etienne","Elise","Eric"],I:["Isabelle","Ines"],S:["Sophie","Samuel"],A:["Alexandre","Alice","Amine"],M:["Marc","Marie","Manon"]} },
+  { lang: 'ka', flag: '🇬🇪', greeting: 'გამარჯობა, მე ვარ ' },
+  { lang: 'de', flag: '🇩🇪', greeting: 'Hallo, ich bin ', names: {U:["Uwe","Ursula"],N:["Nina","Nico","Norbert"],E:["Erik","Eva","Elke"],I:["Ines","Ingo","Ilona"],S:["Stefan","Sara","Sven"],A:["Anna","Andreas","Amira"],M:["Marco","Mia","Matthias"]} },
+  { lang: 'el', flag: '🇬🇷', greeting: 'Γεια σου, είμαι ' },
+  { lang: 'ht', flag: '🇭🇹', greeting: 'Bonjou, mwen se ' },
+  { lang: 'he', flag: '🇮🇱', greeting: 'שלום, אני ' },
+  { lang: 'hi', flag: '🇮🇳', greeting: 'नमस्ते, मैं हूँ ', names: {U:["Uma","Uday"],N:["Neha","Nikhil","Nitin"],E:["Esha","Eshan"],I:["Isha","Ishan"],S:["Sunil","Sana","Sara"],A:["Aarav","Anita","Asha"],M:["Mohan","Meera","Maya"]} },
+  { lang: 'id', flag: '🇮🇩', greeting: 'Halo, saya ' },
+  { lang: 'fa', flag: '🇮🇷', greeting: 'سلام، من ' },
+  { lang: 'ga', flag: '🇮🇪', greeting: "Dia dhuit, is mise " },
+  { lang: 'it', flag: '🇮🇹', greeting: 'Ciao, sono ', names: {U:["Umberto","Ugo"],N:["Nina","Nino"],E:["Elisa","Enzo"],I:["Ilaria","Ivan"],S:["Sara","Stefano"],A:["Alessio","Anna"],M:["Marco","Marta","Matteo"]} },
+  { lang: 'ja', flag: '🇯🇵', greeting: 'こんにちは、私は ', names: {U:["Umi","Ueda"],N:["Naoko","Nori","Natsuki"],E:["Eiko","Emi"],I:["Ichiro","Izumi","Itsuko"],S:["Satoshi","Sayaka","Shinji"],A:["Akira","Aiko","Arata"],M:["Masao","Mika","Minori"]} },
+  { lang: 'sw', flag: '🇰🇪', greeting: 'Habari, mimi ni ' },
+  { lang: 'kk', flag: '🇰🇿', greeting: 'Сәлем, мен ' },
+  { lang: 'ko', flag: '🇰🇷', greeting: '안녕하세요, 저는 ' },
+  { lang: 'ar', flag: '🇱🇧', greeting: 'مرحبا، أنا ' },
+  { lang: 'lt', flag: '🇱🇹', greeting: 'Labas, aš esu ' },
+  { lang: 'ms', flag: '🇲🇾', greeting: 'Hai, saya ' },
+  { lang: 'es', flag: '🇲🇽', greeting: 'Qué tal, soy ', names: {U:["Uriel"],N:["Natalia","Nestor"],E:["Emilio","Elena"],I:["Isabel","Ivan"],S:["Sofia","Sergio"],A:["Alejandro","Ana"],M:["Maria","Miguel","Marco"]} },
+  { lang: 'mn', flag: '🇲🇳', greeting: 'Сайн байна уу, би ' },
+  { lang: 'ar', flag: '🇲🇦', greeting: 'مرحبا، أنا ' },
+  { lang: 'ne', flag: '🇳🇵', greeting: 'नमस्ते, म ' },
+  { lang: 'nl', flag: '🇳🇱', greeting: 'Hoi, ik ben ' },
+  { lang: 'en', flag: '🇳🇬', greeting: "Hello, I'm " },
+  { lang: 'no', flag: '🇳🇴', greeting: 'Hei, jeg er ' },
+  { lang: 'ur', flag: '🇵🇰', greeting: 'ہیلو، میں ہوں ' },
+  { lang: 'fil', flag: '🇵🇭', greeting: 'Kamusta, ako si ' },
+  { lang: 'pl', flag: '🇵🇱', greeting: 'Cześć, jestem ' },
+  { lang: 'pt', flag: '🇵🇹', greeting: 'Olá, sou ' },
+  { lang: 'ro', flag: '🇷🇴', greeting: 'Salut, eu sunt ' },
+  { lang: 'ru', flag: '🇷🇺', greeting: 'Привет, я ', names: {U:["Ulya","Umar"],N:["Nina","Nikita","Nikolai"],E:["Elena","Egor"],I:["Igor","Inna"],S:["Sasha","Sergei"],A:["Anya","Alexei","Artem"],M:["Misha","Mila","Maxim"]} },
+  { lang: 'ar', flag: '🇸🇦', greeting: 'مرحبا، أنا ' },
+  { lang: 'en', flag: '🇿🇦', greeting: "Hello, I'm " },
+  { lang: 'es', flag: '🇪🇸', greeting: 'Hola, soy ', names: {U:["Uriel"],N:["Nina","Noel","Nora"],E:["Elena","Enrique","Eva"],I:["Irene","Ismael"],S:["Sergio","Sofia"],A:["Ana","Alvaro","Alicia"],M:["Mateo","Maria","Miguel"]} },
+  { lang: 'si', flag: '🇱🇰', greeting: 'ආයුබෝවන්, මම ' },
+  { lang: 'ta', flag: '🇱🇰', greeting: 'வணக்கம், நான் ' },
+  { lang: 'sv', flag: '🇸🇪', greeting: 'Hej, jag är ' },
+  { lang: 'tr', flag: '🇹🇷', greeting: 'Merhaba, ben ' },
+  { lang: 'uk', flag: '🇺🇦', greeting: 'Привіт, я ' },
+  { lang: 'en', flag: '🇬🇧', greeting: "Hi, I'm " },
+  { lang: 'en', flag: '🇺🇸', greeting: "Hey, I'm " },
+  { lang: 'vi', flag: '🇻🇳', greeting: 'Xin chào, tôi là ' },
+  { lang: 'cs', flag: '🇨🇿', greeting: 'Ahoj, já jsem ' },
+  { lang: 'da', flag: '🇩🇰', greeting: 'Hej, jeg er ' },
+  { lang: 'hu', flag: '🇭🇺', greeting: 'Szia, én vagyok ' },
+  { lang: 'is', flag: '🇮🇸', greeting: 'Hæ, ég er ' },
+  { lang: 'lo', flag: '🇱🇦', greeting: 'ສະບາຍດີ, ຂ້ອຍແມ່ນ ' },
+  { lang: 'lv', flag: '🇱🇻', greeting: 'Sveiki, es esmu ' },
+  { lang: 'sr', flag: '🇷🇸', greeting: 'Здраво, ја сам ' },
+  { lang: 'sk', flag: '🇸🇰', greeting: 'Ahoj, ja som ' },
+  { lang: 'sl', flag: '🇸🇮', greeting: 'Živjo, jaz sem ' },
+  { lang: 'so', flag: '🇸🇴', greeting: 'Salaan, waxaan ahay ' },
+  { lang: 'et', flag: '🇪🇪', greeting: 'Tere, ma olen ' },
+  { lang: 'bg', flag: '🇧🇬', greeting: 'Здравей, аз съм ' },
+  { lang: 'mk', flag: '🇲🇰', greeting: 'Здраво, јас сум ' },
+  { lang: 'sq', flag: '🇦🇱', greeting: 'Përshëndetje, unë jam ' },
+  { lang: 'af', flag: '🇿🇦', greeting: 'Hallo, ek is ' },
+  { lang: 'az', flag: '🇦🇿', greeting: 'Salam, mən ' },
+  { lang: 'my', flag: '🇲🇲', greeting: 'မင်္ဂလာပါ, ကျွန်တော်က ' },
+  { lang: 'km', flag: '🇰🇭', greeting: 'សួស្តី, ខ្ញុំគឺ ' },
+  { lang: 'uz', flag: '🇺🇿', greeting: 'Salom, men ' },
+  { lang: 'tg', flag: '🇹🇯', greeting: 'Салом, ман ' },
+  { lang: 'ps', flag: '🇦🇫', greeting: 'سلام، زه ' },
+  { lang: 'ku', flag: '🇮🇶', greeting: 'Slav, ez ' },
+  { lang: 'cy', flag: '🏴', greeting: 'Helo, fi yw ' },
+  { lang: 'gd', flag: '🏴', greeting: 'Halò, is mise ' },
+  { lang: 'yi', flag: '🇮🇱', greeting: 'העלא, איך בין ' },
+  { lang: 'ml', flag: '🇮🇳', greeting: 'ഹലോ, ഞാൻ ', names: {U:["Uma","Uday"],N:["Neha","Nikhil","Nitin"],E:["Esha","Eshan"],I:["Isha","Ishan"],S:["Sunil","Sana","Sara"],A:["Aarav","Anita","Asha"],M:["Mohan","Meera","Maya"]} },
+  { lang: 'te', flag: '🇮🇳', greeting: 'హలో, నేను ', names: {U:["Uma","Uday"],N:["Neha","Nikhil","Nitin"],E:["Esha","Eshan"],I:["Isha","Ishan"],S:["Sunil","Sana","Sara"],A:["Aarav","Anita","Asha"],M:["Mohan","Meera","Maya"]} },
+  { lang: 'kn', flag: '🇮🇳', greeting: 'ಹಲೋ, ನಾನು ', names: {U:["Uma","Uday"],N:["Neha","Nikhil","Nitin"],E:["Esha","Eshan"],I:["Isha","Ishan"],S:["Sunil","Sana","Sara"],A:["Aarav","Anita","Asha"],M:["Mohan","Meera","Maya"]} },
+  { lang: 'gu', flag: '🇮🇳', greeting: 'હેલો, હું ', names: {U:["Uma","Uday"],N:["Neha","Nikhil","Nitin"],E:["Esha","Eshan"],I:["Isha","Ishan"],S:["Sunil","Sana","Sara"],A:["Aarav","Anita","Asha"],M:["Mohan","Meera","Maya"]} },
+  { lang: 'mr', flag: '🇮🇳', greeting: 'हॅलो, मी ', names: {U:["Uma","Uday"],N:["Neha","Nikhil","Nitin"],E:["Esha","Eshan"],I:["Isha","Ishan"],S:["Sunil","Sana","Sara"],A:["Aarav","Anita","Asha"],M:["Mohan","Meera","Maya"]} },
+  { lang: 'pa', flag: '🇮🇳', greeting: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ, ਮੈਂ ', names: {U:["Uma","Uday"],N:["Neha","Nikhil","Nitin"],E:["Esha","Eshan"],I:["Isha","Ishan"],S:["Sunil","Sana","Sara"],A:["Aarav","Anita","Asha"],M:["Mohan","Meera","Maya"]} },
+  { lang: 'or', flag: '🇮🇳', greeting: 'ନମସ୍କାର, ମୁଁ ', names: {U:["Uma","Uday"],N:["Neha","Nikhil","Nitin"],E:["Esha","Eshan"],I:["Isha","Ishan"],S:["Sunil","Sana","Sara"],A:["Aarav","Anita","Asha"],M:["Mohan","Meera","Maya"]} },
+  { lang: 'st', flag: '🇱🇸', greeting: 'Lumela, ke ' },
+  { lang: 'xh', flag: '🇿🇦', greeting: 'Molo, ndingu ' },
+  { lang: 'zu', flag: '🇿🇦', greeting: 'Sawubona, ngingu ' }
+];
+
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
+}
+
+
+// ===== Name pools (unique per letter within one game)
+const NAME_POOLS = {
+  'U': ['Uli','Urs','Uta','Uwe','Uma','Udo'],
+  'N': ['Nina','Noah','Noel','Nora','Nadia','Nikolai','Naomi','Nihat','Nelson','Nelly'],
+  'E': ['Eva','Elsa','Erik','Emil','Elena','Elias','Ethan','Emma'],
+  'I': ['Iris','Ivan','Ines','Isla','Ibrahim','Ilona','Igor','Ivy'],
+  'S': ['Sam','Sara','Sven','Sofia','Said','Sina','Stefan','Selma'],
+  'A': ['Anna','Amir','Alex','Ava','Aron','Aya','Alina','André'],
+  'M': ['Max','Mia','Mona','Marco','Marek','Milan','Mei','Marla']
+};
+const _USED_NAMES = {};
+function pickNameFor(letter){
+  const pool = NAME_POOLS[letter] || [letter];
+  if(!_USED_NAMES[letter]) _USED_NAMES[letter] = new Set();
+  for(const n of pool){
+    if(!_USED_NAMES[letter].has(n)){
+      _USED_NAMES[letter].add(n);
+      return n;
+    }
+  }
+  // Fallback if pool exhausted: letter + running number
+  const num = _USED_NAMES[letter].size + 1;
+  const generated = letter + String(num);
+  _USED_NAMES[letter].add(generated);
+  return generated;
+}
+
+
+// ===== Localized name logic (latin script), no duplicates per letter per round
+const GLOBAL_NAME_FALLBACK = {
+  U: ["Umar","Ula","Uwe","Ugo"],
+  N: ["Nina","Noah","Noel","Nora","Nadia"],
+  E: ["Eva","Erik","Elena","Eli"],
+  I: ["Ines","Ivan","Iris","Ilia"],
+  S: ["Sara","Sam","Sven","Sofia"],
+  A: ["Anna","Amir","Alex","Ava","Arman"],
+  M: ["Marco","Mia","Max","Mina","Mateo"]
+};
+const USED_NAMES_BY_LETTER = {};
+function pickLocalizedName(letter, profile){
+  const pool = (profile && profile.names && profile.names[letter] && profile.names[letter].length)
+    ? profile.names[letter]
+    : (GLOBAL_NAME_FALLBACK[letter] || [letter]);
+  if(!USED_NAMES_BY_LETTER[letter]) USED_NAMES_BY_LETTER[letter] = new Set();
+  for(const n of pool){
+    if(!USED_NAMES_BY_LETTER[letter].has(n)){
+      USED_NAMES_BY_LETTER[letter].add(n);
+      return n;
+    }
+  }
+  const gen = letter + String(USED_NAMES_BY_LETTER[letter].size + 1);
+  USED_NAMES_BY_LETTER[letter].add(gen);
+  return gen;
+}
+
+
+// ===== Greeting resolver to ensure "I'm" is in the friend's language
+const GREETING_BY_LANG = {
+  de: 'Hallo, ich bin ',
+  fr: 'Bonjour, je suis ',
+  it: 'Ciao, sono ',
+  en: "Hi, I'm ",
+  es: 'Hola, soy ',
+  pt: 'Oi, eu sou ',
+  ru: 'Привет, я ',
+  zh: '你好，我是 ',
+  ja: 'こんにちは、私は ',
+  ko: '안녕하세요, 저는 ',
+  ar: 'مرحباً، أنا ',
+  sv: 'Hej, jag är ',
+  nl: 'Hoi, ik ben ',
+  pl: 'Cześć, jestem ',
+  ro: 'Salut, eu sunt ',
+  tr: 'Merhaba, ben ',
+  uk: 'Привіт, я ',
+  cs: 'Ahoj, já jsem ',
+  da: 'Hej, jeg er ',
+  fi: 'Hei, olen ',
+  el: 'Γεια σου, είμαι ',
+  he: 'שלום, אני ',
+  hi: 'नमस्ते, मैं हूँ ',
+  id: 'Halo, saya ',
+  ms: 'Hai, saya ',
+  th: 'สวัสดีครับ, ฉันคือ ',
+  vi: 'Xin chào, tôi là ',
+  sw: 'Habari, mimi ni ',
+  bg: 'Здравей, аз съм ',
+  mk: 'Здраво, јас сум '
+};
+function greetingFor(f){
+  // Prefer explicit greeting on the profile if present; otherwise derive by language map
+  if (f && f.greeting) return f.greeting;
+  if (f && f.lang && GREETING_BY_LANG[f.lang]) return GREETING_BY_LANG[f.lang];
+  return "Hi, I'm ";
+}
 
 // ===== Global state
 let W,H,layoutDirty;
@@ -179,7 +381,7 @@ function drawSpeech(f, scale=2){
   const baseText = "Hi, I'm ";
   const name = f.name || "";
   const first = name.slice(0,1);
-  const rest  = name.slice(1);
+  const rest  = name.slice(1) + " " + (f.flag || "");
   const tOpen=Math.min(1,(now-(f.talkStart||0))/200); const ease=1-Math.pow(1-tOpen,3);
   const isGreen = (f.letter==='U'||f.letter==='N');
   const firstCol = isGreen ? '#16a34a' : '#2563eb';
@@ -313,9 +515,19 @@ function restart(difficulty='easy'){
     return pts.map(p=>({x:p.x,y:p.y,vx:rand(-0.25,0.25),vy:rand(-0.25,0.25),color:'#9ca3af',leg:rand(0,Math.PI*2),dir:0,size:14}));
   })();
   const friendPts=spawnFriendsSpaced(8, player);
-  friends = friendPts.map(p=>({ x:p.x, y:p.y, vx:0, vy:0, leg:rand(0,Math.PI*2), dir:0, joined:false, baseColor:'#9ca3af', color:'#9ca3af',
-    name:'', talkStart:0, talkUntil:0, joinRank:null, waveStart:0, waveUntil:0, hintStart:0, hintUntil:0, hintCount:0, _hintPrevColor:null, size:14, discoveredAt:0 }));
-  countEl.textContent='Friends: 0 / 8'; timerEl.textContent='01:00';
+  const profiles = shuffle([...SWISS_PROFILES, ...shuffle(INTERNATIONAL_PROFILES).slice(0,5)]);
+friends = friendPts.map((p, idx) => {
+  const prof = profiles[idx % profiles.length];
+  return {
+    x:p.x, y:p.y, vx:0, vy:0, leg:rand(0,Math.PI*2), dir:0, joined:false,
+    baseColor:'#9ca3af', color:'#9ca3af',
+    name:'', talkStart:0, talkUntil:0, joinRank:null,
+    waveStart:0, waveUntil:0, hintStart:0, hintUntil:0, hintCount:0,
+    _hintPrevColor:null, size:14, discoveredAt:0,
+    flag: prof.flag, lang: prof.lang, greeting: prof.greeting, names: (prof.names||null)
+  };
+});
+  countEl.textContent='Freunde: 0 / 8'; timerEl.textContent='01:00';
 }
 
 // ===== Spawning helpers
@@ -434,12 +646,12 @@ function update(){
       if(index<ORDER.length){
         f.joined=true; f.joinRank=index;
         const letter=ORDER[index]; f.letter=letter; const letterColor=index<2?GREEN:BLUE;
-        f.name = pick(({'U':['Uli','Uma','Udo'],'N':['Nina','Noah','Noel'],'E':['Eva','Elsa','Erik'],'I':['Iris','Ivan','Ines'],'S':['Sam','Sara','Sven'],'A':['Anna','Amir','Alex'],'M':['Max','Mia','Mona']})[letter]||[letter]);
+        f.name = pickLocalizedName(letter, f);
         // Wave + speak + freeze
         const now=performance.now();
         f.waveStart=now; f.waveUntil=now+2000; f.talkStart=now; f.talkUntil=now+1500; freezeUntil=Math.max(freezeUntil, now+2000);
         startLetterAnim(index, letter, f.x, f.y-28, letterColor);
-        setTimeout(()=>{ f.color=letterColor; countEl.textContent=`Friends: ${friends.filter(ff=>ff.joined).length} / 8`; }, 900);
+        setTimeout(()=>{ f.color=letterColor; countEl.textContent=`Freunde: ${friends.filter(ff=>ff.joined).length} / 8`; }, 900);
         lastFoundAt=now; lastHintAt=now;
         // Instant win check on 8th join
         const joinedCount = friends.filter(ff=>ff.joined).length;
@@ -524,10 +736,20 @@ function init(){
   crowd = pts.map(p=>({x:p.x,y:p.y,vx:rand(-0.25,0.25),vy:rand(-0.25,0.25),color:'#9ca3af',leg:rand(0,Math.PI*2),dir:0,size:14}));
   // Friends
   const friendPts=spawnFriendsSpaced(8, player);
-  friends = friendPts.map(p=>({ x:p.x, y:p.y, vx:0, vy:0, leg:rand(0,Math.PI*2), dir:0, joined:false, baseColor:'#9ca3af', color:'#9ca3af',
-    name:'', talkStart:0, talkUntil:0, joinRank:null, waveStart:0, waveUntil:0, hintStart:0, hintUntil:0, hintCount:0, _hintPrevColor:null, size:14, discoveredAt:0 }));
+  const profiles = shuffle([...SWISS_PROFILES, ...shuffle(INTERNATIONAL_PROFILES).slice(0,5)]);
+friends = friendPts.map((p, idx) => {
+  const prof = profiles[idx % profiles.length];
+  return {
+    x:p.x, y:p.y, vx:0, vy:0, leg:rand(0,Math.PI*2), dir:0, joined:false,
+    baseColor:'#9ca3af', color:'#9ca3af',
+    name:'', talkStart:0, talkUntil:0, joinRank:null,
+    waveStart:0, waveUntil:0, hintStart:0, hintUntil:0, hintCount:0,
+    _hintPrevColor:null, size:14, discoveredAt:0,
+    flag: prof.flag, lang: prof.lang, greeting: prof.greeting, names: (prof.names||null)
+  };
+});
   // HUD
-  countEl.textContent='Friends: 0 / 8';
+  countEl.textContent='Freunde: 0 / 8';
   timerEl.textContent='01:00';
   // Start timer
   startedAt=performance.now();
